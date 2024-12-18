@@ -11,11 +11,13 @@ use miette::{Context, IntoDiagnostic};
 use minijinja::{context, Environment};
 use pixi_config::{get_default_author, Config};
 use pixi_consts::consts;
+use pixi_default_versions::{default_glibc_version, default_linux_version, default_mac_os_version};
 use pixi_manifest::{
     pyproject::PyProjectManifest, DependencyOverwriteBehavior, FeatureName, SpecType,
 };
 use pixi_utils::conda_environment_file::CondaEnvFile;
 use rattler_conda_types::{NamedChannelOrUrl, Platform};
+use rattler_virtual_packages::{VirtualPackage, VirtualPackageOverrides};
 use tokio::fs::OpenOptions;
 use url::Url;
 use uv_normalize::PackageName;
@@ -73,6 +75,11 @@ description = "Add a short description here"
 name = "{{ name }}"
 platforms = {{ platforms }}
 version = "{{ version }}"
+
+{%- if system_requirements %}
+[system-requirements]
+{{ system_requirements }}
+{%- endif %}
 
 {%- if index_url or extra_indexes %}
 
@@ -209,6 +216,49 @@ pub async fn execute(args: Args) -> miette::Result<()> {
     } else {
         args.platforms.clone()
     };
+
+    // Detect active system requirements
+    let system_requirements =
+        VirtualPackage::detect(&VirtualPackageOverrides::from_env()).into_diagnostic()?;
+    for requirement in system_requirements {
+        match requirement {
+            VirtualPackage::Linux(x) => {
+                let default = default_linux_version();
+                eprintln!("System Requirement Linux {:#?}", x);
+                eprintln!("System Requirement Linux default {:#?}", default);
+                if x.version < default {
+                    eprintln!("Detected linux version as older then default");
+                }
+            }
+            VirtualPackage::LibC(x) => {
+                let default = default_glibc_version();
+                eprintln!("System Requirement LibC {:#?}", x);
+                eprintln!("System Requirement LibC default {:#?}", default);
+                if x.version < default {
+                    eprintln!("Detected libc version as older then default");
+                }
+            }
+            VirtualPackage::Archspec(_) => {}
+            VirtualPackage::Win => {
+                eprintln!("System Requirement Win");
+            }
+            VirtualPackage::Unix => {
+                eprintln!("System Requirement Unix");
+            }
+            VirtualPackage::Osx(x) => {
+                //let default = default_mac_os_version();
+                eprintln!("System Requirement Osx {:#?}", x);
+                //eprintln!("System Requirement Osx default {:#?}", default);
+            }
+            VirtualPackage::Cuda(x) => {
+                eprintln!("System Requirement Cuda {:#?}", x);
+            }
+        };
+    }
+
+    // Filter out requirements that meet the "baseline" requirements
+
+    // Add system-requirements to render
 
     // Create a 'pixi.toml' manifest and populate it by importing a conda
     // environment file
